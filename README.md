@@ -1,1 +1,1 @@
-# Portfolio-optimisation-using-pyschometric-questions
+# Psychometric Risk Profiler and Portfolio Optimizer
