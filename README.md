@@ -8,7 +8,7 @@ A Python tool that scores an investor's risk appetite through 5 questions and th
 
 1. Runs a 5-question psychometric quiz, scoring the investor from 5 to 15
 2. Maps the score to Conservative, Moderate, or Aggressive
-3. Each profile has a fixed equity-to-bond split and its own stock universe
+3. Each profile has a fixed equity-to-bond split and its own stock universe. Aggressive stocks are picked live: the 4 highest-beta stocks in the NIFTY 100
 4. Downloads 3 years of historical price data from Yahoo Finance
 5. Simulates a bond with 6% annual return and 2% volatility (avoids yfinance data issues with Indian gilt ETFs)
 6. Finds the portfolio weights that maximize the Sharpe Ratio, constrained to the profile's equity-bond split
@@ -23,9 +23,21 @@ A Python tool that scores an investor's risk appetite through 5 questions and th
 |--------------|--------|-------|--------|
 | Conservative  | 25%   | 75%   | HDFCBANK, TCS, NESTLEIND, INFY |
 | Moderate      | 55%   | 45%   | RELIANCE, TCS, HDFCBANK, INFY |
-| Aggressive    | 80%   | 20%   | ETERNAL (Zomato), MOTILALOFS, ADANIENT, BAJFINANCE |
+| Aggressive    | 80%   | 20%   | Top 4 by beta in the NIFTY 100, picked live on each run |
 
 Aggressive investors get high-beta names. Conservative investors get defensive large-caps. The bond across all profiles is a simulated instrument returning 6% annually with 2% volatility — seeded so results are reproducible.
+
+### How the high-beta stocks are picked
+
+On every Aggressive run the script:
+
+1. Downloads the current NIFTY 100 constituent list from NSE. If NSE blocks the request, it falls back to a built-in NIFTY 50 list
+2. Downloads 1 year of daily prices for those stocks and the NIFTY 50 index (`^NSEI`) from Yahoo Finance
+3. Drops stocks with less than 90% of trading days (recent listings, suspensions)
+4. Computes each stock's beta: `cov(stock, NIFTY 50) / var(NIFTY 50)` on daily returns
+5. Takes the 4 highest-beta stocks and prints them with their betas
+
+The picks change as market conditions change, so results differ between runs on different days. The lookback (`BETA_PERIOD`) and the number of stocks (`N_HIGH_BETA`) are constants at the top of the script.
 
 ---
 
