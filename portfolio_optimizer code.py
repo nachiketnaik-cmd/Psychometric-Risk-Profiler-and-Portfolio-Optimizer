@@ -56,17 +56,13 @@ def get_risk_profile(score):
         return "Aggressive", 0.80, 0.20
 
 
-# conservative and moderate get stable large-caps
-# aggressive is picked live: the highest-beta names in the NIFTY 100 (see high_beta_stocks)
-EQUITY = {
-    "Conservative": ["HDFCBANK.NS", "TCS.NS",        "NESTLEIND.NS",  "INFY.NS"],
-    "Moderate":     ["RELIANCE.NS", "TCS.NS",         "HDFCBANK.NS",   "INFY.NS"],
-}
+# stocks are picked live by beta vs the NIFTY 50 (see pick_stocks):
+# conservative gets the lowest betas, moderate the betas closest to 1, aggressive the highest
 
 # live constituent list from NSE; if NSE blocks the request we fall back to the NIFTY 50 below
 UNIVERSE_URL = "https://archives.nseindia.com/content/indices/ind_nifty100list.csv"
 BENCHMARK    = "^NSEI"   # NIFTY 50
-N_HIGH_BETA  = 4
+N_STOCKS     = 4
 BETA_PERIOD  = "1y"
 
 FALLBACK_UNIVERSE = [
@@ -98,7 +94,7 @@ def get_universe():
     return [s + ".NS" for s in symbols]
 
 
-def high_beta_stocks(n=N_HIGH_BETA):
+def stock_betas():
     # beta = cov(stock, market) / var(market) on daily returns over the last year
     universe = get_universe()
     data     = yf.download(universe + [BENCHMARK], period=BETA_PERIOD, auto_adjust=True, progress=False)["Close"]
@@ -108,10 +104,22 @@ def high_beta_stocks(n=N_HIGH_BETA):
     # drop names with patchy history (recent listings, suspensions) so betas are comparable
     returns = returns.loc[:, returns.notna().mean() >= 0.9]
 
-    betas = returns.apply(lambda r: r.cov(market) / market[r.notna()].var())
-    top   = betas.dropna().sort_values(ascending=False).head(n)
+    return returns.apply(lambda r: r.cov(market) / market[r.notna()].var()).dropna()
 
-    print(f"\nHighest-beta stocks vs NIFTY 50 ({BETA_PERIOD}):")
+
+def pick_stocks(profile, n=N_STOCKS):
+    betas = stock_betas()
+    if profile == "Conservative":
+        top = betas.sort_values().head(n)
+        label = "Lowest-beta"
+    elif profile == "Moderate":
+        top = betas.loc[(betas - 1).abs().sort_values().index].head(n)
+        label = "Closest-to-market (beta near 1)"
+    else:
+        top = betas.sort_values(ascending=False).head(n)
+        label = "Highest-beta"
+
+    print(f"\n{label} stocks vs NIFTY 50 ({BETA_PERIOD}):")
     for t, b in top.items():
         print(f"  {t:<16} beta {b:.2f}")
     return top.index.tolist()
@@ -294,7 +302,7 @@ def main():
     print(f"Risk Profile: {profile} ({eq_w*100:.0f}% equity / {bond_w*100:.0f}% bonds)")
 
     print("\nFetching market data...")
-    equity_tickers = high_beta_stocks() if profile == "Aggressive" else EQUITY[profile]
+    equity_tickers = pick_stocks(profile)
     returns        = fetch_returns(equity_tickers)
     tickers        = equity_tickers + [BOND_TICKER]
 
