@@ -1,3 +1,5 @@
+import io
+import urllib.request
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -54,19 +56,73 @@ def get_risk_profile(score):
         return "Aggressive", 0.80, 0.20
 
 
-# conservative and moderate get stable large-caps
-# aggressive gets high-beta names — zomato, motilal, adani, tata motors
-EQUITY = {
-    "Conservative": ["HDFCBANK.NS", "TCS.NS",        "NESTLEIND.NS",  "INFY.NS"],
-    "Moderate":     ["RELIANCE.NS", "TCS.NS",         "HDFCBANK.NS",   "INFY.NS"],
-    "Aggressive":   ["ETERNAL.NS",  "MOTILALOFS.NS",  "ADANIENT.NS",   "BAJFINANCE.NS"]
-}
+# stocks are picked live by beta vs the NIFTY 50 (see pick_stocks):
+# conservative gets the lowest betas, moderate the betas closest to 1, aggressive the highest
+
+# live constituent list from NSE; if NSE blocks the request we fall back to the NIFTY 50 below
+UNIVERSE_URL = "https://archives.nseindia.com/content/indices/ind_nifty100list.csv"
+BENCHMARK    = "^NSEI"   # NIFTY 50
+N_STOCKS     = 4
+BETA_PERIOD  = "1y"
+
+FALLBACK_UNIVERSE = [
+    "ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK", "BAJAJ-AUTO",
+    "BAJFINANCE", "BAJAJFINSV", "BEL", "BHARTIARTL", "CIPLA", "COALINDIA", "DRREDDY",
+    "EICHERMOT", "ETERNAL", "GRASIM", "HCLTECH", "HDFCBANK", "HDFCLIFE", "HEROMOTOCO",
+    "HINDALCO", "HINDUNILVR", "ICICIBANK", "INDUSINDBK", "INFY", "ITC", "JIOFIN",
+    "JSWSTEEL", "KOTAKBANK", "LT", "M&M", "MARUTI", "NESTLEIND", "NTPC", "ONGC",
+    "POWERGRID", "RELIANCE", "SBILIFE", "SBIN", "SHRIRAMFIN", "SUNPHARMA", "TATACONSUM",
+    "TATASTEEL", "TCS", "TECHM", "TITAN", "TRENT", "ULTRACEMCO", "WIPRO",
+]
 
 # bond is simulated as 6% annual return with low vol (2%)
 # avoids yfinance data issues with Indian bond/gilt ETFs entirely
 BOND_TICKER = "BOND_6PCT"
 
 RF = 0.06   # risk-free rate — 6% per annum (standard India benchmark)
+
+
+def get_universe():
+    try:
+        req = urllib.request.Request(UNIVERSE_URL, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            symbols = pd.read_csv(io.StringIO(resp.read().decode()))["Symbol"].str.strip().tolist()
+        print(f"Universe: {len(symbols)} NIFTY 100 stocks (live from NSE)")
+    except Exception as e:
+        symbols = FALLBACK_UNIVERSE
+        print(f"Could not fetch NIFTY 100 list from NSE ({e}); using built-in NIFTY 50 list")
+    return [s + ".NS" for s in symbols]
+
+
+def stock_betas():
+    # beta = cov(stock, market) / var(market) on daily returns over the last year
+    universe = get_universe()
+    data     = yf.download(universe + [BENCHMARK], period=BETA_PERIOD, auto_adjust=True, progress=False)["Close"]
+    returns  = data.pct_change(fill_method=None)
+
+    market = returns.pop(BENCHMARK)
+    # drop names with patchy history (recent listings, suspensions) so betas are comparable
+    returns = returns.loc[:, returns.notna().mean() >= 0.9]
+
+    return returns.apply(lambda r: r.cov(market) / market[r.notna()].var()).dropna()
+
+
+def pick_stocks(profile, n=N_STOCKS):
+    betas = stock_betas()
+    if profile == "Conservative":
+        top = betas.sort_values().head(n)
+        label = "Lowest-beta"
+    elif profile == "Moderate":
+        top = betas.loc[(betas - 1).abs().sort_values().index].head(n)
+        label = "Closest-to-market (beta near 1)"
+    else:
+        top = betas.sort_values(ascending=False).head(n)
+        label = "Highest-beta"
+
+    print(f"\n{label} stocks vs NIFTY 50 ({BETA_PERIOD}):")
+    for t, b in top.items():
+        print(f"  {t:<16} beta {b:.2f}")
+    return top.index.tolist()
 
 
 def fetch_returns(equity_tickers):
@@ -246,7 +302,7 @@ def main():
     print(f"Risk Profile: {profile} ({eq_w*100:.0f}% equity / {bond_w*100:.0f}% bonds)")
 
     print("\nFetching market data...")
-    equity_tickers = EQUITY[profile]
+    equity_tickers = pick_stocks(profile)
     returns        = fetch_returns(equity_tickers)
     tickers        = equity_tickers + [BOND_TICKER]
 

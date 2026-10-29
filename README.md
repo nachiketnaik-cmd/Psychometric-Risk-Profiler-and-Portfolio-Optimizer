@@ -8,7 +8,7 @@ A Python tool that scores an investor's risk appetite through 5 questions and th
 
 1. Runs a 5-question psychometric quiz, scoring the investor from 5 to 15
 2. Maps the score to Conservative, Moderate, or Aggressive
-3. Each profile has a fixed equity-to-bond split and its own stock universe
+3. Each profile has a fixed equity-to-bond split and its own stock universe. Stocks are picked live by beta from the NIFTY 100
 4. Downloads 3 years of historical price data from Yahoo Finance
 5. Simulates a bond with 6% annual return and 2% volatility (avoids yfinance data issues with Indian gilt ETFs)
 6. Finds the portfolio weights that maximize the Sharpe Ratio, constrained to the profile's equity-bond split
@@ -21,11 +21,23 @@ A Python tool that scores an investor's risk appetite through 5 questions and th
 
 | Profile      | Equity | Bonds | Stocks |
 |--------------|--------|-------|--------|
-| Conservative  | 25%   | 75%   | HDFCBANK, TCS, NESTLEIND, INFY |
-| Moderate      | 55%   | 45%   | RELIANCE, TCS, HDFCBANK, INFY |
-| Aggressive    | 80%   | 20%   | ETERNAL (Zomato), MOTILALOFS, ADANIENT, BAJFINANCE |
+| Conservative  | 25%   | 75%   | 4 lowest-beta stocks |
+| Moderate      | 55%   | 45%   | 4 stocks with beta closest to 1 |
+| Aggressive    | 80%   | 20%   | 4 highest-beta stocks |
 
-Aggressive investors get high-beta names. Conservative investors get defensive large-caps. The bond across all profiles is a simulated instrument returning 6% annually with 2% volatility — seeded so results are reproducible.
+Stocks are picked live from the NIFTY 100 on each run. Aggressive investors get high-beta names that amplify market moves; Conservative investors get low-beta, defensive names; Moderate investors get stocks that move roughly with the market. The bond across all profiles is a simulated instrument returning 6% annually with 2% volatility — seeded so results are reproducible.
+
+### How the stocks are picked
+
+On every run the script:
+
+1. Downloads the current NIFTY 100 constituent list from NSE. If NSE blocks the request, it falls back to a built-in NIFTY 50 list
+2. Downloads 1 year of daily prices for those stocks and the NIFTY 50 index (`^NSEI`) from Yahoo Finance
+3. Drops stocks with less than 90% of trading days (recent listings, suspensions)
+4. Computes each stock's beta: `cov(stock, NIFTY 50) / var(NIFTY 50)` on daily returns
+5. Takes 4 stocks for the profile (lowest beta, beta closest to 1, or highest beta) and prints them with their betas
+
+The picks change as market conditions change, so results differ between runs on different days. The lookback (`BETA_PERIOD`) and the number of stocks (`N_STOCKS`) are constants at the top of the script.
 
 ---
 
